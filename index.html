@@ -50,8 +50,24 @@ body.notes-open #viewport { right: 340px; }
 #notesTopic { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #notesClose { border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 6px; border-radius: 4px; }
 #notesClose:hover { background: #eef2f7; }
-#notesText { flex: 1; resize: none; border: none; outline: none; padding: 12px 14px; font: inherit; font-size: 14px; line-height: 1.5; color: var(--text); }
-#notesText:disabled { background: #fafbfc; }
+.np-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: #fafbfc; }
+.np-tools button { min-width: 28px; height: 28px; padding: 0 6px; border: 1px solid transparent; border-radius: 5px; background: none;
+  font: inherit; font-size: 13px; cursor: pointer; color: var(--text); }
+.np-tools button:hover { background: #eef2f7; border-color: var(--border); }
+.np-tools button.active { background: var(--l1-bg); border-color: var(--l1-border); }
+.np-tools .sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+.np-tools .swatch { font-weight: 700; }
+.np-tools .hl { border-radius: 3px; padding: 0 3px; }
+#notesPanel.disabled .np-tools { opacity: .4; pointer-events: none; }
+#notesEditor { flex: 1; overflow: auto; padding: 12px 14px; outline: none; font-size: 14px; line-height: 1.5; color: var(--text);
+  overflow-wrap: anywhere; user-select: text; }
+#notesPanel.disabled #notesEditor { background: #fafbfc; }
+#notesEditor:empty::before { content: attr(data-placeholder); color: #9aa5b1; pointer-events: none; }
+#notesEditor p { margin: 0 0 .5em; }
+#notesEditor h3 { font-size: 16px; margin: .6em 0 .3em; }
+#notesEditor ul, #notesEditor ol { margin: 0 0 .5em; padding-left: 24px; }
+#notesEditor blockquote { margin: 0 0 .5em; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); }
+#notesEditor a { color: var(--accent); }
 .node .note-ind { flex: none; font-size: .85em; line-height: 1; cursor: pointer; opacity: .8; }
 .node .note-ind:hover { opacity: 1; }
 #formatPanel { position: fixed; display: none; width: 318px; padding: 10px 12px 12px; background: #fff; z-index: 25;
@@ -186,7 +202,28 @@ body.notes-open #viewport { right: 340px; }
     <span id="notesTopic"></span>
     <button id="notesClose" title="Fermer (F4)">×</button>
   </div>
-  <textarea id="notesText" spellcheck="true"></textarea>
+  <div class="np-tools" id="notesTools">
+    <button data-ncmd="bold" title="Gras (Ctrl+B)"><b>G</b></button>
+    <button data-ncmd="italic" title="Italique (Ctrl+I)"><i>I</i></button>
+    <button data-ncmd="underline" title="Souligné (Ctrl+U)"><u>S</u></button>
+    <button data-ncmd="strikeThrough" title="Barré"><s>abc</s></button>
+    <span class="sep"></span>
+    <button data-ncmd="heading" title="Titre">T</button>
+    <button data-ncmd="insertUnorderedList" title="Liste à puces (Tab / Maj+Tab pour décaler)">• ≡</button>
+    <button data-ncmd="insertOrderedList" title="Liste numérotée">1. ≡</button>
+    <button data-ncmd="quote" title="Citation">❝</button>
+    <span class="sep"></span>
+    <button data-ncmd="foreColor" data-arg="#d32f2f" class="swatch" style="color:#d32f2f" title="Texte rouge">A</button>
+    <button data-ncmd="foreColor" data-arg="#ef6c00" class="swatch" style="color:#ef6c00" title="Texte orange">A</button>
+    <button data-ncmd="foreColor" data-arg="#2e7d32" class="swatch" style="color:#2e7d32" title="Texte vert">A</button>
+    <button data-ncmd="foreColor" data-arg="#1565c0" class="swatch" style="color:#1565c0" title="Texte bleu">A</button>
+    <button data-ncmd="hiliteColor" data-arg="#fff176" title="Surligner en jaune"><span class="hl" style="background:#fff176">ab</span></button>
+    <button data-ncmd="hiliteColor" data-arg="#b9f6ca" title="Surligner en vert"><span class="hl" style="background:#b9f6ca">ab</span></button>
+    <span class="sep"></span>
+    <button data-ncmd="link" title="Lien (Ctrl+K) — Ctrl+clic sur un lien pour l'ouvrir">🔗</button>
+    <button data-ncmd="clear" title="Effacer la mise en forme">✕ Format</button>
+  </div>
+  <div id="notesEditor" contenteditable="true" spellcheck="true"></div>
 </aside>
 <div id="ghost"></div>
 <div id="formatPanel">
@@ -347,7 +384,9 @@ function normalize(obj, seen = new Set()) {
   if (COLORS[obj?.color]) n.color = obj.color;
   const icons = Array.isArray(obj?.icons) ? [...new Set(obj.icons.filter(k => ICONS.has(k)))] : [];
   if (icons.length) n.icons = icons;
-  if (typeof obj?.note === 'string' && obj.note.trim()) n.note = obj.note;
+  // Notes riches (noteHtml) ; une ancienne note en texte brut est convertie en paragraphes
+  if (typeof obj?.noteHtml === 'string') setNote(n, sanitizeNoteHtml(obj.noteHtml));
+  else if (typeof obj?.note === 'string' && obj.note.trim()) setNote(n, textToHtml(obj.note));
   return n;
 }
 
@@ -355,7 +394,7 @@ function cloneFresh(n) {
   const c = { id: newId(), text: n.text, collapsed: !!n.collapsed, children: n.children.map(cloneFresh) };
   if (n.color) c.color = n.color;
   if (n.icons?.length) c.icons = [...n.icons];
-  if (n.note) c.note = n.note;
+  if (n.noteHtml) { c.noteHtml = n.noteHtml; c.note = n.note; }
   return c;
 }
 
@@ -995,7 +1034,7 @@ function insertNodes(nodes) {
   toast(nodes.length > 1 ? `${nodes.length} sujets collés` : 'Collé');
 }
 
-const isFormTarget = e => e.target instanceof Element && !!e.target.closest('input, textarea');
+const isFormTarget = e => e.target instanceof Element && !!e.target.closest('input, textarea, #notesEditor');
 
 document.addEventListener('copy', e => {
   if (editing || isFormTarget(e)) return;
@@ -1327,7 +1366,7 @@ async function exportMermaid(kind) {
   const code = kind === 'flow' ? mermaidFlowchart() : mermaidMindmap();
   const notes = [];
   (function walk(n) {
-    if (n.note) notes.push(`### ${withIcons(n, n.text.replace(/\s*\n\s*/g, ' '))}\n\n${n.note.trim()}`);
+    if (n.noteHtml) notes.push(`### ${withIcons(n, n.text.replace(/\s*\n\s*/g, ' '))}\n\n${htmlToMarkdown(n.noteHtml)}`);
     n.children.forEach(walk);
   })(root);
   const md = `# ${root.text.replace(/\s*\n\s*/g, ' ')}\n\n\`\`\`mermaid\n${code}\n\`\`\`\n` +
@@ -1374,7 +1413,7 @@ async function readZipEntry(buf, nameRe) {
   throw new Error('Document.xml introuvable dans le fichier .mmap');
 }
 
-// Texte brut d'une note XHTML MindManager, avec un saut de ligne par paragraphe
+// Texte brut d'une note (HTML ou XHTML MindManager), avec un saut de ligne par paragraphe
 function xhtmlText(el) {
   let out = '';
   (function walk(x) {
@@ -1382,9 +1421,12 @@ function xhtmlText(el) {
       if (c.nodeType === 3) out += c.data.replace(/\s+/g, ' ');
       else if (c.nodeType === 1) {
         if (c.localName === 'br') { out += '\n'; continue; }
-        const block = /^(p|div|li|h[1-6]|tr)$/.test(c.localName);
+        const block = /^(p|div|li|h[1-6]|tr|blockquote|pre)$/.test(c.localName);
         if (block && out && !out.endsWith('\n')) out += '\n';
-        if (c.localName === 'li') out += '• ';
+        if (c.localName === 'li') {
+          const p = c.parentNode;
+          out += p && p.localName === 'ol' ? [...p.children].filter(x => x.localName === 'li').indexOf(c) + 1 + '. ' : '• ';
+        }
         walk(c);
         if (block && !out.endsWith('\n')) out += '\n';
       }
@@ -1408,8 +1450,10 @@ async function importMmap(buf) {
     const ng = kids(t, 'NotesGroup')[0];
     const nx = ng && kids(ng, 'NotesXhtmlData')[0];
     if (nx) {
-      const note = xhtmlText(nx) || nx.getAttribute('PreviewPlainText') || '';
-      if (note.trim()) node.note = note.trim();
+      // Conserve la mise en forme de MindManager ; repli sur l'aperçu texte
+      const html = sanitizeFrom(nx);
+      if (!noteIsEmpty(html)) setNote(node, html);
+      else if ((nx.getAttribute('PreviewPlainText') || '').trim()) setNote(node, textToHtml(nx.getAttribute('PreviewPlainText').trim()));
     }
     return node;
   };
@@ -1660,8 +1704,112 @@ document.addEventListener('keydown', e => {
 });
 
 // ---------- Notes ----------
-const notesText = $('#notesText');
+// Une note est enregistrée en HTML filtré (noteHtml) et en texte brut (note : aperçu, recherche, compatibilité)
+const notesEditor = $('#notesEditor'), notesPanel = $('#notesPanel');
 let noteSession = null;            // {id, pushed} pendant la saisie d'une note
+
+const NOTE_TAGS = new Set(['b', 'strong', 'i', 'em', 'u', 's', 'strike', 'del', 'ul', 'ol', 'li', 'p', 'div', 'br', 'a',
+  'h1', 'h2', 'h3', 'h4', 'span', 'font', 'blockquote', 'code', 'pre', 'sub', 'sup']);
+const NOTE_DROP = new Set(['script', 'style', 'iframe', 'object', 'embed', 'template', 'head', 'meta', 'link', 'title', 'svg', 'math']);
+const NOTE_STYLES = ['color', 'background-color', 'font-weight', 'font-style', 'text-decoration', 'text-decoration-line'];
+const sanitizeDoc = document.implementation.createHTMLDocument('');
+
+// Recopie un arbre (HTML ou XHTML MindManager) en ne gardant que les balises et styles de mise en forme sûrs
+function sanitizeFrom(srcRoot) {
+  const out = sanitizeDoc.createElement('div');
+  (function copy(src, dst) {
+    for (const c of src.childNodes) {
+      if (c.nodeType === 3) { dst.appendChild(sanitizeDoc.createTextNode(c.data)); continue; }
+      if (c.nodeType !== 1) continue;
+      const tag = (c.localName || '').toLowerCase();
+      if (NOTE_DROP.has(tag)) continue;
+      if (!NOTE_TAGS.has(tag)) { copy(c, dst); continue; }
+      const el = sanitizeDoc.createElement(tag === 'font' ? 'span' : tag);
+      if (tag === 'a') {
+        const href = (c.getAttribute('href') || '').trim();
+        if (/^(https?:|mailto:)/i.test(href)) el.setAttribute('href', href);
+      }
+      const styles = [];
+      for (const decl of (c.getAttribute('style') || '').split(';')) {
+        const i = decl.indexOf(':');
+        if (i < 0) continue;
+        const prop = decl.slice(0, i).trim().toLowerCase(), val = decl.slice(i + 1).trim();
+        if (NOTE_STYLES.includes(prop) && /^[#\w\s(),.%-]+$/.test(val) && !/url|expression/i.test(val)) styles.push(`${prop}: ${val}`);
+      }
+      if (tag === 'font' && /^#?\w+$/.test(c.getAttribute('color') || '')) styles.push(`color: ${c.getAttribute('color')}`);
+      if (styles.length) el.setAttribute('style', styles.join('; '));
+      copy(c, el);
+      dst.appendChild(el);
+    }
+  })(srcRoot, out);
+  return out.innerHTML;
+}
+const parseHtml = html => new DOMParser().parseFromString(html, 'text/html').body;
+const sanitizeNoteHtml = html => sanitizeFrom(parseHtml(html));
+const htmlToText = html => xhtmlText(parseHtml(html));
+const textToHtml = s => s.split('\n').map(l => `<p>${esc(l) || '<br>'}</p>`).join('');
+const noteIsEmpty = html => !htmlToText(html).trim() && !/<li/i.test(html);
+
+function setNote(n, html) {
+  if (html && !noteIsEmpty(html)) { n.noteHtml = html; n.note = htmlToText(html); }
+  else { delete n.noteHtml; delete n.note; }
+}
+
+// Conversion de la note en Markdown (export) ; souligné et couleurs n'ont pas d'équivalent
+function htmlToMarkdown(html) {
+  const BLOCK = /^(p|div|h[1-6]|ul|ol|blockquote|pre|li)$/;
+  const wrap = (s, m) => { const t = s.trim(); return t ? s.match(/^\s*/)[0] + m + t + m + s.match(/\s*$/)[0] : s; };
+  function inline(nodes) {
+    let s = '';
+    for (const c of nodes) {
+      if (c.nodeType === 3) { s += c.data.replace(/\s+/g, ' ').replace(/([\\*_~`[\]])/g, '\\$1'); continue; }
+      if (c.nodeType !== 1) continue;
+      const t = c.localName, kids = c.childNodes;
+      if (t === 'br') s += '  \n';
+      else if (t === 'b' || t === 'strong') s += wrap(inline(kids), '**');
+      else if (t === 'i' || t === 'em') s += wrap(inline(kids), '*');
+      else if (t === 's' || t === 'strike' || t === 'del') s += wrap(inline(kids), '~~');
+      else if (t === 'code') s += '`' + c.textContent + '`';
+      else if (t === 'a' && c.getAttribute('href')) s += `[${inline(kids)}](${c.getAttribute('href')})`;
+      else s += inline(kids);
+    }
+    return s;
+  }
+  function blocks(el, indent) {
+    const out = [];
+    let run = [];
+    const flush = () => {
+      const t = inline(run).split('\n').map(l => l.replace(/^ +/, '')).join('\n').trim();
+      if (t) out.push({ type: 'p', text: t });
+      run = [];
+    };
+    for (const c of el.childNodes) {
+      const t = c.nodeType === 1 ? c.localName : '';
+      if (!BLOCK.test(t)) { run.push(c); continue; }
+      flush();
+      if (/^h[1-6]$/.test(t)) {
+        const txt = inline(c.childNodes).trim();
+        if (txt) out.push({ type: 'p', text: '#### ' + txt });
+      } else if (t === 'ul' || t === 'ol') {
+        let i = 1;
+        for (const li of [...c.children].filter(x => x.localName === 'li')) {
+          const inner = blocks(li, indent + '   ');
+          const first = inner.length && inner[0].type === 'p' ? inner.shift().text : '';
+          out.push({ type: 'li', text: indent + (t === 'ol' ? `${i++}. ` : '- ') + first });
+          for (const x of inner) out.push({ type: 'li', text: x.type === 'li' ? x.text : indent + '   ' + x.text });
+        }
+      } else if (t === 'blockquote') {
+        for (const x of blocks(c, '')) out.push({ type: 'p', text: x.text.split('\n').map(l => '> ' + l).join('\n') });
+      } else {
+        out.push(...blocks(c, indent));
+      }
+    }
+    flush();
+    return out;
+  }
+  return blocks(parseHtml(html), '').reduce((s, b, i, arr) =>
+    s + (i ? (b.type === 'li' && arr[i - 1].type === 'li' ? '\n' : '\n\n') : '') + b.text, '');
+}
 
 function notesOpen() { return document.body.classList.contains('notes-open'); }
 
@@ -1669,12 +1817,16 @@ function toggleNotes(show, focus) {
   const on = show ?? !notesOpen();
   document.body.classList.toggle('notes-open', on);
   try { localStorage.setItem('mindmap.notesOpen', on ? '1' : ''); } catch { /* rien */ }
-  if (!on && document.activeElement === notesText) notesText.blur();
+  if (!on && document.activeElement === notesEditor) notesEditor.blur();
   refreshNotes();
   updateToolbar();
   if (on && focus && getPrimary()) {
-    notesText.focus();
-    notesText.setSelectionRange(notesText.value.length, notesText.value.length);
+    notesEditor.focus();
+    const r = document.createRange();
+    r.selectNodeContents(notesEditor);
+    r.collapse(false);
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
   }
 }
 
@@ -1682,37 +1834,126 @@ function refreshNotes() {
   if (!notesOpen()) return;
   const n = getPrimary();
   // Ne pas écraser la saisie en cours (et la position du curseur)
-  if (noteSession && document.activeElement === notesText && n && noteSession.id === n.id) return;
+  if (noteSession && document.activeElement === notesEditor && n && noteSession.id === n.id) return;
   $('#notesTopic').textContent = n ? n.text.split('\n')[0] : '';
-  notesText.disabled = !n;
-  notesText.value = n?.note || '';
-  notesText.placeholder = n ? 'Écrire une note pour ce sujet…' : 'Sélectionnez un sujet pour voir ou écrire sa note.';
+  notesPanel.classList.toggle('disabled', !n);
+  notesEditor.contentEditable = n ? 'true' : 'false';
+  notesEditor.innerHTML = n?.noteHtml || '';
+  notesEditor.dataset.placeholder = n ? 'Écrire une note pour ce sujet…' : 'Sélectionnez un sujet pour voir ou écrire sa note.';
+  updateNoteTools();
 }
 
-notesText.addEventListener('focus', () => {
-  finishEdit();
-  const n = getPrimary();
-  noteSession = n ? { id: n.id, pushed: false } : null;
-});
-notesText.addEventListener('blur', () => { noteSession = null; });
-notesText.addEventListener('input', () => {
+function noteChanged() {
   const n = noteSession && byId.get(noteSession.id);
   if (!n) return;
   if (!noteSession.pushed) { pushHistory(); noteSession.pushed = true; }   // une seule étape d'annulation par séance
-  const had = !!n.note;
-  if (notesText.value.trim()) n.note = notesText.value; else delete n.note;
+  const had = !!n.noteHtml;
+  setNote(n, sanitizeNoteHtml(notesEditor.innerHTML));
   markDirty();
-  if (had !== !!n.note) render();
+  if (had !== !!n.noteHtml) render();
   else {
     const ni = nodeEls.get(n.id)?.querySelector('.note-ind');
     if (ni) ni.title = notePreview(n.note);
     updateToolbar();
   }
+}
+
+function inNoteEditor() {
+  const s = getSelection();
+  return s.rangeCount > 0 && notesEditor.contains(s.anchorNode);
+}
+function closestInNote(tag) {
+  let el = getSelection().anchorNode;
+  for (; el && el !== notesEditor; el = el.parentNode) if (el.nodeType === 1 && el.localName === tag) return el;
+  return null;
+}
+
+function updateNoteTools() {
+  const focused = document.activeElement === notesEditor && inNoteEditor();
+  for (const b of document.querySelectorAll('#notesTools [data-ncmd]')) {
+    const c = b.dataset.ncmd;
+    let on = false;
+    if (focused) {
+      if (['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList'].includes(c)) {
+        try { on = document.queryCommandState(c); } catch { /* non supporté */ }
+      } else if (c === 'heading') on = !!closestInNote('h3');
+      else if (c === 'quote') on = !!closestInNote('blockquote');
+      else if (c === 'link') on = !!closestInNote('a');
+    }
+    b.classList.toggle('active', on);
+  }
+}
+
+function insertNoteLink() {
+  const current = closestInNote('a');
+  const url = (prompt('Adresse du lien (https://…, mailto:…) — vide pour retirer le lien :', current?.getAttribute('href') || 'https://') ?? null);
+  if (url === null) return;
+  const href = url.trim();
+  if (!href) { if (current) { const r = document.createRange(); r.selectNodeContents(current); getSelection().removeAllRanges(); getSelection().addRange(r); } document.execCommand('unlink'); return; }
+  if (!/^(https?:|mailto:)/i.test(href)) { alert('Le lien doit commencer par http://, https:// ou mailto:'); return; }
+  if (getSelection().isCollapsed && !current) document.execCommand('insertHTML', false, `<a href="${esc(href)}">${esc(href)}</a>&nbsp;`);
+  else document.execCommand('createLink', false, href);
+}
+
+function noteCommand(cmd, arg) {
+  if (!getPrimary()) return;
+  if (document.activeElement !== notesEditor || !inNoteEditor()) notesEditor.focus();
+  switch (cmd) {
+    case 'heading': document.execCommand('formatBlock', false, closestInNote('h3') ? 'p' : 'h3'); break;
+    case 'quote': document.execCommand('formatBlock', false, closestInNote('blockquote') ? 'p' : 'blockquote'); break;
+    case 'link': insertNoteLink(); break;
+    case 'clear':
+      document.execCommand('removeFormat');
+      document.execCommand('unlink');
+      if (closestInNote('h3') || closestInNote('blockquote')) document.execCommand('formatBlock', false, 'p');
+      break;
+    case 'foreColor': case 'hiliteColor':
+      document.execCommand('styleWithCSS', false, true);
+      document.execCommand(cmd, false, arg);
+      document.execCommand('styleWithCSS', false, false);
+      break;
+    default: document.execCommand(cmd, false, null);
+  }
+  updateNoteTools();
+}
+
+try { document.execCommand('defaultParagraphSeparator', false, 'p'); } catch { /* non supporté */ }
+
+for (const b of document.querySelectorAll('#notesTools button')) {
+  b.tabIndex = -1;
+  b.addEventListener('mousedown', e => e.preventDefault());   // garde la sélection dans la note
+  b.addEventListener('click', () => noteCommand(b.dataset.ncmd, b.dataset.arg));
+}
+
+notesEditor.addEventListener('focus', () => {
+  finishEdit();
+  const n = getPrimary();
+  noteSession = n ? { id: n.id, pushed: false } : null;
 });
-notesText.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { e.preventDefault(); notesText.blur(); }
-  else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); notesText.blur(); save(e.shiftKey); }
+notesEditor.addEventListener('blur', () => { noteSession = null; updateNoteTools(); });
+notesEditor.addEventListener('input', noteChanged);
+document.addEventListener('selectionchange', () => { if (notesOpen()) updateNoteTools(); });
+
+// Collage : HTML filtré (Word, pages web…) ou texte brut
+notesEditor.addEventListener('paste', e => {
+  e.preventDefault();
+  const html = e.clipboardData.getData('text/html'), text = e.clipboardData.getData('text/plain');
+  if (html) document.execCommand('insertHTML', false, sanitizeNoteHtml(html.replace(/^[\s\S]*<!--StartFragment-->|<!--EndFragment-->[\s\S]*$/g, '')));
+  else document.execCommand('insertText', false, text);
+});
+
+notesEditor.addEventListener('click', e => {
+  const a = e.target.closest('a');
+  if (a && (e.ctrlKey || e.metaKey) && a.getAttribute('href')) { e.preventDefault(); window.open(a.getAttribute('href'), '_blank', 'noopener'); }
+});
+
+notesEditor.addEventListener('keydown', e => {
+  const ctrl = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (e.key === 'Escape') { e.preventDefault(); notesEditor.blur(); }
+  else if (ctrl && k === 's') { e.preventDefault(); notesEditor.blur(); save(e.shiftKey); }
+  else if (ctrl && k === 'k') { e.preventDefault(); insertNoteLink(); }
   else if (e.key === 'F4') { e.preventDefault(); toggleNotes(false); }
+  else if (e.key === 'Tab' && closestInNote('li')) { e.preventDefault(); document.execCommand(e.shiftKey ? 'outdent' : 'indent'); }
 });
 $('#notesClose').addEventListener('click', () => toggleNotes(false));
 
