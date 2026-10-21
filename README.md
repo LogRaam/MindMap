@@ -1,7 +1,8 @@
 # MindMap
 
 Application de cartes mentales (mind mapping) dans le navigateur, inspirée de Mindjet MindManager.
-Un seul fichier `index.html`, sans installation ni dépendance : ouvrez-le dans Chrome ou Edge.
+Un seul fichier `index.html`, sans installation ni dépendance : ouvrez-le dans Chrome ou Edge,
+ou utilisez-la en ligne : **https://lograam.github.io/MindMap/**
 
 ## Fonctionnalités
 
