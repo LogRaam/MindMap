@@ -80,6 +80,9 @@ body.notes-open #viewport { right: 340px; }
 .fp-swatch.none { background: linear-gradient(135deg, #fff 45%, #e05555 45%, #e05555 55%, #fff 55%); border-color: var(--ln-border); }
 .fp-icon { width: 30px; height: 30px; border-radius: 6px; border: 1px solid transparent; background: none; font-size: 17px;
   cursor: pointer; padding: 0; }
+.fp-swatch.custom { position: relative; overflow: hidden; border-color: var(--ln-border);
+  background: conic-gradient(#e53935, #fdd835, #43a047, #1e88e5, #8e24aa, #e53935); }
+.fp-swatch.custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: none; padding: 0; }
 .fp-icon:hover, .fp-swatch:hover { box-shadow: 0 0 0 2px #cfd8e3; }
 .fp-swatch.active, .fp-icon.active { box-shadow: 0 0 0 2px var(--sel); }
 .fp-icon.active { background: #fff4e0; }
@@ -345,7 +348,23 @@ const ICON_GROUPS = [
     ['question', '❓', 'Question'], ['idea', '💡', 'Idée'], ['pin', '📌', 'Épinglé'], ['date', '📅', 'Date'],
     ['person', '👤', 'Personne'], ['money', '💰', 'Budget'], ['target', '🎯', 'Objectif'], ['pro', '👍', 'Pour'],
     ['con', '👎', 'Contre'], ['lock', '🔒', 'Verrouillé'], ['link', '🔗', 'Lien'], ['note', '📝', 'Note']] },
+  { name: 'Humeur et flèches', exclusive: false, icons: [
+    ['happy', '😊', 'Content'], ['neutral', '😐', 'Neutre'], ['sad', '😟', 'Mécontent'],
+    ['up', '⬆️', 'Hausse'], ['down', '⬇️', 'Baisse'], ['left', '⬅️', 'Gauche'], ['right', '➡️', 'Droite']] },
 ];
+
+// Couleur d'un sujet : clé de la palette ou couleur libre « #rrggbb » (ex. importée de MindManager)
+function colorStyle(c) {
+  if (COLORS[c]) return COLORS[c];
+  if (!/^#[0-9a-f]{6}$/i.test(c || '')) return null;
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const dark = v => Math.round(v * 0.72).toString(16).padStart(2, '0');
+  return {
+    name: c, bg: c,
+    border: '#' + dark(r) + dark(g) + dark(b),
+    fg: (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#1f2933' : '#ffffff',
+  };
+}
 const ICONS = new Map();
 ICON_GROUPS.forEach(g => g.icons.forEach(([id, emoji, label]) => ICONS.set(id, { id, emoji, label, group: g, order: ICONS.size })));
 const iconsText = n => (n.icons || []).map(k => ICONS.get(k).emoji).join('');
@@ -381,7 +400,7 @@ function normalize(obj, seen = new Set()) {
     collapsed: !!obj?.collapsed,
     children: Array.isArray(obj?.children) ? obj.children.map(c => normalize(c, seen)) : [],
   };
-  if (COLORS[obj?.color]) n.color = obj.color;
+  if (colorStyle(obj?.color)) n.color = obj.color;
   const icons = Array.isArray(obj?.icons) ? [...new Set(obj.icons.filter(k => ICONS.has(k)))] : [];
   if (icons.length) n.icons = icons;
   // Notes riches (noteHtml) ; une ancienne note en texte brut est convertie en paragraphes
@@ -476,7 +495,7 @@ function render() {
     const el = document.createElement('div');
     el.className = 'node lvl' + Math.min(level, 2) + (selection.has(n.id) ? ' selected' : '');
     el.dataset.id = n.id;
-    const col = COLORS[n.color];
+    const col = colorStyle(n.color);
     if (col) {
       el.style.background = col.bg;
       el.style.borderColor = col.border;
@@ -1171,7 +1190,11 @@ async function loadFile(file, handle) {
   setMap(normalize(newRoot), file.name, keepHandle ? handle : null, layout);
   if (!keepHandle) fileName = file.name.replace(/\.[^.]+$/, '') + '.json';
   updateTitle();
-  toast('Carte ouverte : ' + file.name);
+  const st = lower.endsWith('.mmap') ? lastImportStats : null;
+  if (st && st.unknownIcons.size) {
+    console.info('Icônes MindManager non reconnues :', [...st.unknownIcons]);
+    toast(`Carte ouverte : ${file.name} — ${st.unknownIcons.size} type(s) d'icône non reconnu(s)`);
+  } else toast('Carte ouverte : ' + file.name);
 }
 
 // layout absent (nouvelle carte, .mmap, .txt) : on garde le mode courant
@@ -1348,7 +1371,7 @@ function mermaidFlowchart() {
     const text = label(withIcons(n, n.text));
     const shape = depth === 0 ? `(["${text}"])` : `["${text}"]`;
     lines.push(parentId ? `  ${parentId} --> ${id}${shape}` : `  ${id}${shape}`);
-    const col = COLORS[n.color];
+    const col = colorStyle(n.color);
     if (col) styles.push(`  style ${id} fill:${col.bg},stroke:${col.border},color:${col.fg}`);
     else if (depth === 1) l1.push(id);
     n.children.forEach(c => walk(c, id, depth + 1));
@@ -1435,11 +1458,72 @@ function xhtmlText(el) {
   return out.split('\n').map(l => l.trim()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Icônes MindManager (IconType « urn:mindjet:Prio1 », « FlagRed », « SmileyHappy »…) -> icônes de l'application.
+// Reconnaissance par mots-clés : les noms exacts varient selon les versions de MindManager.
+const MM_COLOR_WORDS = [['red', 'red'], ['rouge', 'red'], ['orange', 'orange'], ['yellow', 'yellow'], ['jaune', 'yellow'],
+  ['green', 'green'], ['vert', 'green'], ['blue', 'blue'], ['bleu', 'blue'], ['purple', 'purple'], ['violet', 'purple']];
+const mmColorWord = s => MM_COLOR_WORDS.find(([w]) => s.startsWith(w) || s.endsWith(w))?.[1];
+const MM_ICON_RULES = [
+  [/prio\w*?(\d)/, m => 'p' + Math.min(5, Math.max(1, +m[1]))],
+  [/(?:percent|progress|complete)\D*(\d+)/, m => (+m[1] >= 100 ? 'done' : +m[1] <= 0 ? 'todo' : 'doing')],
+  [/smiley\w*(?:happy|smile)|happy/, 'happy'], [/neutral/, 'neutral'], [/sad|angry|unhappy|frown/, 'sad'],
+  [/thumbs?\W*up/, 'pro'], [/thumbs?\W*down/, 'con'],
+  [/arrow\w*up|up\w*arrow/, 'up'], [/arrow\w*down|down\w*arrow/, 'down'],
+  [/arrow\w*left|left\w*arrow/, 'left'], [/arrow\w*right|right\w*arrow/, 'right'],
+  [/flag/, (m, s) => { const c = mmColorWord(s); return !c || c === 'red' ? 'flag' : 'dot-' + c; }],
+  [/question/, 'question'], [/exclam|alert|important|urgent/, 'urgent'], [/warn|caution|danger/, 'warn'],
+  [/star/, 'star'], [/bulb|idea/, 'idea'], [/calendar|date|clock|time/, 'date'],
+  [/check|tick|done|complete/, 'done'], [/pause|hold|wait/, 'wait'], [/cross|cancel|stop|delete/, 'cancel'],
+  [/person|people|user|resource|contact|team/, 'person'], [/money|dollar|euro|cost|budget|cash/, 'money'],
+  [/target|goal|bullseye/, 'target'], [/lock/, 'lock'], [/pin/, 'pin'], [/note|memo/, 'note'], [/link/, 'link'],
+  [/bullet|dot|circle|ball|marker|tag/, (m, s) => { const c = mmColorWord(s); return c ? 'dot-' + c : null; }],
+];
+function mmIcon(type) {
+  const s = (type || '').toLowerCase().replace(/^urn:mindjet:/, '');
+  if (!s) return null;
+  for (const [re, res] of MM_ICON_RULES) {
+    const m = s.match(re);
+    if (m) return typeof res === 'function' ? res(m, s) : res;
+  }
+  return null;
+}
+
+// Couleur MindManager « AARRGGBB » (ou « RRGGBB ») -> « #rrggbb » ; null si transparente
+function mmColor(v) {
+  const h = (v || '').trim().replace(/^#/, '');
+  if (/^[0-9a-f]{8}$/i.test(h)) return h.slice(0, 2).toLowerCase() === '00' ? null : '#' + h.slice(2).toLowerCase();
+  if (/^[0-9a-f]{6}$/i.test(h)) return '#' + h.toLowerCase();
+  return null;
+}
+
+let lastImportStats = null;
+
 async function importMmap(buf) {
   const xml = await readZipEntry(buf, /^Document\.xml$/i);
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length) throw new Error('XML invalide');
   const kids = (el, name) => [...el.children].filter(c => c.localName === name);
+  // Éléments propres à un sujet, sans descendre dans ses sous-sujets ni ses notes
+  const own = (t, name) => {
+    const out = [];
+    (function walk(el) {
+      for (const c of el.children) {
+        if (['Topic', 'SubTopics', 'FloatingTopics', 'NotesGroup'].includes(c.localName)) continue;
+        if (c.localName === name) out.push(c);
+        walk(c);
+      }
+    })(t);
+    return out;
+  };
+  const stats = lastImportStats = { icons: 0, unknownIcons: new Set(), colors: 0 };
+  const addIcon = (node, id) => {
+    const ic = ICONS.get(id);
+    if (!ic) return;
+    let icons = (node.icons || []).filter(k => k !== id && !(ic.group.exclusive && ICONS.get(k).group === ic.group));
+    icons.push(id);
+    node.icons = icons.sort((a, b) => ICONS.get(a).order - ICONS.get(b).order);
+    stats.icons++;
+  };
   const conv = t => {
     const txt = kids(t, 'Text')[0];
     const st = kids(t, 'SubTopics')[0];
@@ -1454,6 +1538,27 @@ async function importMmap(buf) {
       const html = sanitizeFrom(nx);
       if (!noteIsEmpty(html)) setNote(node, html);
       else if ((nx.getAttribute('PreviewPlainText') || '').trim()) setNote(node, textToHtml(nx.getAttribute('PreviewPlainText').trim()));
+    }
+
+    // Icônes : stock (IconsGroup) et informations de tâche (priorité, % d'avancement)
+    for (const ic of own(t, 'Icon')) {
+      const type = ic.getAttribute('IconType') || ic.getAttribute('IconSignature') || '';
+      const id = mmIcon(type);
+      if (id) addIcon(node, id);
+      else if (type) stats.unknownIcons.add(type.replace(/^urn:mindjet:/i, ''));
+    }
+    for (const task of own(t, 'Task')) {
+      for (const a of task.attributes) {
+        const name = a.localName.toLowerCase(), val = a.value;
+        if (name.includes('priority') && /prio\w*?\d/i.test(val)) addIcon(node, mmIcon(val));
+        else if (name.includes('percent') && /^\d+$/.test(val)) addIcon(node, mmIcon('percent' + val));
+      }
+    }
+
+    // Couleur de remplissage propre au sujet (celles venant d'un thème ou d'un style ne sont pas dans le sujet)
+    for (const c of own(t, 'Color')) {
+      const fill = mmColor(c.getAttribute('FillColor'));
+      if (fill) { node.color = fill; stats.colors++; break; }
     }
     return node;
   };
@@ -1976,6 +2081,11 @@ const formatPanel = $('#formatPanel');
     b.style.borderColor = c.border;
     sw.appendChild(b);
   }
+  const custom = document.createElement('label');
+  custom.className = 'fp-swatch custom';
+  custom.title = 'Autre couleur…';
+  custom.innerHTML = '<input type="color" value="#9ecbff">';
+  sw.appendChild(custom);
   const groups = $('#iconGroups');
   for (const g of ICON_GROUPS) {
     const title = document.createElement('div');
@@ -1997,7 +2107,13 @@ const formatPanel = $('#formatPanel');
 
 function refreshFormatPanel() {
   const n = getPrimary();
-  for (const b of formatPanel.querySelectorAll('.fp-swatch')) b.classList.toggle('active', !!n && (n.color || '') === b.dataset.color);
+  for (const b of formatPanel.querySelectorAll('.fp-swatch:not(.custom)')) b.classList.toggle('active', !!n && (n.color || '') === b.dataset.color);
+  // Pastille « Autre couleur » : affiche la couleur libre du sujet (#rrggbb)
+  const custom = formatPanel.querySelector('.fp-swatch.custom'), free = n && !COLORS[n.color] && colorStyle(n.color);
+  custom.classList.toggle('active', !!free);
+  custom.style.background = free ? free.bg : '';
+  custom.style.borderColor = free ? free.border : '';
+  if (free) custom.querySelector('input').value = n.color;
   for (const b of formatPanel.querySelectorAll('.fp-icon')) b.classList.toggle('active', !!n && !!n.icons?.includes(b.dataset.icon));
 }
 
@@ -2059,7 +2175,8 @@ function clearFormat(colorToo) {
   refreshFormatPanel();
 }
 
-formatPanel.addEventListener('mousedown', e => e.preventDefault());   // ne vole pas le focus
+formatPanel.addEventListener('mousedown', e => { if (!e.target.closest('.custom')) e.preventDefault(); });   // ne vole pas le focus
+formatPanel.querySelector('.custom input').addEventListener('change', e => setColor(e.target.value.toLowerCase()));
 formatPanel.addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
