@@ -16,6 +16,7 @@ ou utilisez-la en ligne : **https://lograam.github.io/MindMap/**
 - Enregistrer / ouvrir en `.json` ; import des fichiers **MindManager `.mmap`** (sujets, notes mises en forme, icônes et couleurs) et de plans `.txt`
 - Copier / coller de branches ou de la carte entière, en plan indenté compatible avec Word, MindManager, courriels — avec ou sans les notes
 - Export **PNG** (fichier ou presse-papiers) et **Markdown Mermaid** (`mindmap` ou `flowchart LR`)
+- Export en **page HTML interactive** à partager : un seul fichier qui s'ouvre dans n'importe quel navigateur, sans l'application — zoom, déplacement, replier / déplier, notes, mode sombre, mais sans modification possible
 - **Mode sombre** (bouton 🌙 / ☀ ; par défaut, suit le réglage du système)
 - Sauvegarde automatique dans le navigateur
 

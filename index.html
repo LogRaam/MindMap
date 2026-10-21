@@ -196,6 +196,12 @@ body.notes-open #viewport { right: 340px; }
 #help td:first-child { white-space: nowrap; color: var(--accent); font-weight: 600; padding-right: 12px; }
 #help h3 { font-size: 13px; margin: 12px 0 4px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 @media (max-width: 700px) { #help .cols { grid-template-columns: 1fr; } }
+
+/* ---------- Page partagée en lecture seule (export HTML) ---------- */
+body.readonly #toolbar > :not(.view) { display: none; }
+body.readonly #notesTools { display: none; }
+body.readonly #notesEditor { user-select: text; }
+body.readonly .node { cursor: pointer; }
 </style>
 </head>
 <body>
@@ -211,6 +217,7 @@ body.notes-open #viewport { right: 340px; }
       <button data-cmd="exportPng">Image PNG…</button>
       <button data-cmd="copyPng">Copier comme image</button>
       <button data-cmd="copyWithNotes">Copier le texte avec les notes (Word, courriel)</button>
+      <button data-cmd="exportHtml">Page HTML interactive (lecture seule)…</button>
       <hr>
       <button data-cmd="exportMermaidMindmap">Markdown Mermaid — mindmap…</button>
       <button data-cmd="exportMermaidFlow">Markdown Mermaid — flowchart (gauche → droite)…</button>
@@ -224,23 +231,23 @@ body.notes-open #viewport { right: 340px; }
   <button data-cmd="addSibling" title="Sujet (Entrée)">＋ Sujet</button>
   <button data-cmd="delete" title="Supprimer (Suppr)">🗑 Supprimer</button>
   <button data-cmd="format" id="formatBtn" title="Couleur et icônes (aussi clic droit sur un sujet)">🎨 Format ▾</button>
-  <button data-cmd="notes" title="Afficher / masquer les notes (F4)">📝 Notes</button>
+  <button class="view" data-cmd="notes" title="Afficher / masquer les notes (F4)">📝 Notes</button>
   <span class="sep"></span>
   <button data-cmd="cut" title="Couper (Ctrl+X)">✂</button>
   <button data-cmd="copy" title="Copier (Ctrl+C)">⧉ Copier</button>
   <button data-cmd="paste" title="Coller (Ctrl+V)">📋 Coller</button>
-  <span class="sep"></span>
-  <button data-cmd="layoutRight" title="Carte vers la droite">→ Droite</button>
-  <button data-cmd="layoutBoth" title="Carte équilibrée à gauche et à droite">⇄ Gauche + droite</button>
-  <span class="sep"></span>
-  <button data-cmd="zoomOut" title="Zoom arrière (Ctrl+-)">−</button>
-  <span id="zoomLabel">100%</span>
-  <button data-cmd="zoomIn" title="Zoom avant (Ctrl++)">+</button>
-  <button data-cmd="fit" title="Ajuster à la fenêtre (Ctrl+0)">⤢ Ajuster</button>
-  <span class="sep"></span>
-  <button data-cmd="theme" title="Mode sombre / clair">🌙</button>
-  <button data-cmd="help" title="Aide (F1)">?</button>
-  <span id="fileName"></span>
+  <span class="sep view"></span>
+  <button class="view" data-cmd="layoutRight" title="Carte vers la droite">→ Droite</button>
+  <button class="view" data-cmd="layoutBoth" title="Carte équilibrée à gauche et à droite">⇄ Gauche + droite</button>
+  <span class="sep view"></span>
+  <button class="view" data-cmd="zoomOut" title="Zoom arrière (Ctrl+-)">−</button>
+  <span class="view" id="zoomLabel">100%</span>
+  <button class="view" data-cmd="zoomIn" title="Zoom avant (Ctrl++)">+</button>
+  <button class="view" data-cmd="fit" title="Ajuster à la fenêtre (Ctrl+0)">⤢ Ajuster</button>
+  <span class="sep view"></span>
+  <button class="view" data-cmd="theme" title="Mode sombre / clair">🌙</button>
+  <button class="view" data-cmd="help" title="Aide (F1)">?</button>
+  <span class="view" id="fileName"></span>
 </div>
 
 <div id="viewport">
@@ -343,7 +350,7 @@ body.notes-open #viewport { right: 340px; }
           <tr><td>Ctrl+O</td><td>Ouvrir (.json, .mmap MindManager, .txt)</td></tr>
           <tr><td>Ctrl+C / X / V</td><td>Copier / couper / coller des branches (sans sélection : toute la carte)</td></tr>
           <tr><td>Ctrl+Z / Ctrl+Y</td><td>Annuler / rétablir</td></tr>
-          <tr><td>Exporter ▾</td><td>Image PNG (fichier ou presse-papiers), texte avec les notes (Word, courriel), Markdown Mermaid (mindmap ou flowchart)</td></tr>
+          <tr><td>Exporter ▾</td><td>Image PNG (fichier ou presse-papiers), texte avec les notes (Word, courriel), page HTML interactive à partager (lecture seule), Markdown Mermaid (mindmap ou flowchart)</td></tr>
         </table>
         <p style="font-size:12px;color:var(--muted);margin-top:10px">Le texte copié est un plan indenté : il se colle dans
           MindManager, Word ou un courriel. Un plan indenté (tabulations ou espaces) collé ici devient des sujets.
@@ -357,6 +364,17 @@ body.notes-open #viewport { right: 340px; }
 'use strict';
 
 const $ = s => document.querySelector(s);
+
+// Page partagée (export HTML) : la carte est intégrée dans la page et ne peut pas être modifiée
+const VIEW_DATA = window.MINDMAP_VIEW || null;
+const READONLY = !!VIEW_DATA;
+if (READONLY) document.body.classList.add('readonly');
+// Corps de page tel que chargé (avant le rendu), gabarit de l'export HTML
+const PRISTINE_BODY = (() => {
+  const b = document.body.cloneNode(true);
+  b.querySelectorAll('script').forEach(x => x.remove());
+  return b.innerHTML.trim();
+})();
 const viewport = $('#viewport'), world = $('#world'), nodesLayer = $('#nodes');
 const linkPath = $('#links path'), dropLine = $('#dropLine'), marqueeEl = $('#marquee'), ghost = $('#ghost');
 
@@ -533,6 +551,7 @@ function redo() {
 
 // Applique une modification annulable ; fn peut retourner false pour annuler l'opération
 function change(fn) {
+  if (READONLY) return false;
   finishEdit();
   pushHistory();
   if (fn() === false) { undoStack.pop(); return false; }
@@ -711,12 +730,14 @@ function updateTitle() {
 
 let autosaveTimer = null;
 function markDirty() {
+  if (READONLY) return;
   dirty = true;
   updateTitle();
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(autosave, 400);
 }
 function autosave() {
+  if (READONLY) return;
   try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ root, layout: layoutMode, fileName, dirty })); } catch { /* stockage indisponible */ }
 }
 
@@ -937,6 +958,7 @@ function moveNodes(ids, targetId, where, copy) {
 
 // ---------- Édition du texte ----------
 function startEdit(id, mode) {
+  if (READONLY) return;
   finishEdit();
   const el = nodeEls.get(id);
   if (!el) return;
@@ -1133,7 +1155,7 @@ document.addEventListener('copy', e => {
   doCopy(e.clipboardData);
 });
 document.addEventListener('cut', e => {
-  if (editing || isFormTarget(e)) return;
+  if (READONLY || editing || isFormTarget(e)) return;
   e.preventDefault();
   if (![...selection].some(id => id !== root.id)) return;
   doCopy(e.clipboardData);
@@ -1141,7 +1163,7 @@ document.addEventListener('cut', e => {
   toast('Coupé');
 });
 document.addEventListener('paste', e => {
-  if (editing || isFormTarget(e)) return;
+  if (READONLY || editing || isFormTarget(e)) return;
   e.preventDefault();
   pasteData(e.clipboardData.getData('text/html'), e.clipboardData.getData('text/plain'));
 });
@@ -1476,6 +1498,41 @@ async function exportMermaid(kind) {
   } catch (err) { alert('Export Markdown impossible : ' + err.message); }
 }
 
+// ---- Page HTML interactive en lecture seule : l'application elle-même, avec la carte intégrée ----
+function viewerHtml() {
+  const title = root.text.replace(/\s*\n\s*/g, ' ') || exportBaseName();
+  // « < » échappé pour que le JSON intégré ne ferme jamais la balise <script>
+  const data = JSON.stringify({ root, layout: layoutMode, name: exportBaseName() }).replace(/</g, '\\u003c');
+  const headScript = document.head.querySelector('script')?.textContent || '';
+  const style = document.head.querySelector('style').textContent;
+  const appScript = document.body.querySelector('script').textContent;
+  return `<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<script>${headScript}<\/script>
+<style>${style}</style>
+</head>
+<body class="readonly">
+${PRISTINE_BODY}
+<script>window.MINDMAP_VIEW = ${data};<\/script>
+<script>${appScript}<\/script>
+</body>
+</html>
+`;
+}
+
+async function exportHtml() {
+  finishEdit();
+  try {
+    const saved = await saveBlob(async () => new Blob([viewerHtml()], { type: 'text/html' }), exportBaseName() + '.html',
+      'Page HTML', 'text/html', '.html');
+    if (saved) toast('Page HTML exportée : elle s\'ouvre dans n\'importe quel navigateur');
+  } catch (err) { alert('Export HTML impossible : ' + err.message); }
+}
+
 // ---- Import MindManager (.mmap = archive zip contenant Document.xml) ----
 async function readZipEntry(buf, nameRe) {
   const dv = new DataView(buf), u8 = new Uint8Array(buf);
@@ -1745,8 +1802,8 @@ function updateMarquee(e) {
 }
 
 function beginNodeDrag(e) {
-  // Glisser le sujet central déplace la vue
-  if (drag.id === root.id) {
+  // Glisser le sujet central (ou n'importe quel sujet en lecture seule) déplace la vue
+  if (READONLY || drag.id === root.id) {
     drag = { type: 'pan', lx: e.clientX, ly: e.clientY, moved: 99, background: false };
     viewport.classList.add('panning');
     return;
@@ -1821,8 +1878,9 @@ viewport.addEventListener('wheel', e => {
 }, { passive: false });
 
 // Glisser un fichier sur la fenêtre pour l'ouvrir
-window.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); });
+window.addEventListener('dragover', e => { if (!READONLY && e.dataTransfer.types.includes('Files')) e.preventDefault(); });
 window.addEventListener('drop', async e => {
+  if (READONLY) return;
   const f = e.dataTransfer.files[0];
   if (!f) return;
   e.preventDefault();
@@ -1848,6 +1906,7 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (e.ctrlKey || e.metaKey) {
+    if (READONLY && !['a', '0', '=', '+', '-'].includes(k.toLowerCase())) return;
     switch (k.toLowerCase()) {
       case 'z': e.preventDefault(); e.shiftKey ? redo() : undo(); break;
       case 'y': e.preventDefault(); redo(); break;
@@ -1997,7 +2056,7 @@ function toggleNotes(show, focus) {
   if (!on && document.activeElement === notesEditor) notesEditor.blur();
   refreshNotes();
   updateToolbar();
-  if (on && focus && getPrimary()) {
+  if (on && focus && getPrimary() && !READONLY) {
     notesEditor.focus();
     const r = document.createRange();
     r.selectNodeContents(notesEditor);
@@ -2014,9 +2073,10 @@ function refreshNotes() {
   if (noteSession && document.activeElement === notesEditor && n && noteSession.id === n.id) return;
   $('#notesTopic').textContent = n ? n.text.split('\n')[0] : '';
   notesPanel.classList.toggle('disabled', !n);
-  notesEditor.contentEditable = n ? 'true' : 'false';
+  notesEditor.contentEditable = n && !READONLY ? 'true' : 'false';
   notesEditor.innerHTML = n?.noteHtml || '';
-  notesEditor.dataset.placeholder = n ? 'Écrire une note pour ce sujet…' : 'Sélectionnez un sujet pour voir ou écrire sa note.';
+  notesEditor.dataset.placeholder = READONLY ? (n ? 'Aucune note pour ce sujet.' : 'Sélectionnez un sujet pour voir sa note.')
+    : n ? 'Écrire une note pour ce sujet…' : 'Sélectionnez un sujet pour voir ou écrire sa note.';
   updateNoteTools();
 }
 
@@ -2121,7 +2181,7 @@ notesEditor.addEventListener('paste', e => {
 
 notesEditor.addEventListener('click', e => {
   const a = e.target.closest('a');
-  if (a && (e.ctrlKey || e.metaKey) && a.getAttribute('href')) { e.preventDefault(); window.open(a.getAttribute('href'), '_blank', 'noopener'); }
+  if (a && (READONLY || e.ctrlKey || e.metaKey) && a.getAttribute('href')) { e.preventDefault(); window.open(a.getAttribute('href'), '_blank', 'noopener'); }
 });
 
 notesEditor.addEventListener('keydown', e => {
@@ -2264,6 +2324,7 @@ document.addEventListener('pointerdown', e => {
 
 viewport.addEventListener('contextmenu', e => {
   e.preventDefault();
+  if (READONLY) return;
   const nodeEl = e.target.closest('.node');
   if (!nodeEl) return;
   finishEdit();
@@ -2281,6 +2342,7 @@ const commands = {
   exportMenu: () => exportMenu.classList.toggle('show'),
   exportPng,
   copyPng,
+  exportHtml,
   exportMermaidMindmap: () => exportMermaid('mindmap'),
   exportMermaidFlow: () => exportMermaid('flow'),
   undo, redo,
@@ -2323,6 +2385,7 @@ document.addEventListener('pointerdown', e => {
 });
 
 window.addEventListener('beforeunload', e => {
+  if (READONLY) return;
   if (editing) finishEdit();
   autosave();
   if (dirty) { e.preventDefault(); e.returnValue = ''; }
@@ -2354,8 +2417,32 @@ setTheme(savedTheme() || (darkQuery?.matches ? 'dark' : 'light'));
 darkQuery?.addEventListener?.('change', e => { if (!savedTheme()) setTheme(e.matches ? 'dark' : 'light'); });
 
 // ---------- Démarrage ----------
+const VIEWER_HELP = `
+  <div><h3>Parcourir</h3><table>
+    <tr><td>Clic</td><td>Sélectionner un sujet (sa note s'affiche dans 📝 Notes)</td></tr>
+    <tr><td>Flèches</td><td>Naviguer</td></tr>
+    <tr><td>Espace / bouton ±</td><td>Replier / déplier</td></tr>
+    <tr><td>F4 / 📝 Notes</td><td>Panneau des notes</td></tr>
+    <tr><td>Clic sur 📄</td><td>Ouvre la note du sujet</td></tr>
+    <tr><td>Ctrl+C</td><td>Copier la sélection en plan indenté</td></tr>
+  </table></div>
+  <div><h3>Vue</h3><table>
+    <tr><td>Glisser</td><td>Déplacer la vue</td></tr>
+    <tr><td>Molette / Ctrl+molette</td><td>Défiler / zoomer</td></tr>
+    <tr><td>Ctrl+0</td><td>Ajuster à la fenêtre</td></tr>
+    <tr><td>→ / ⇄</td><td>Disposition vers la droite ou gauche + droite</td></tr>
+    <tr><td>🌙 / ☀</td><td>Mode sombre / clair</td></tr>
+  </table>
+  <p style="font-size:12px;color:var(--muted);margin-top:10px">Carte en lecture seule, exportée depuis MindMap.</p></div>`;
+
 (function init() {
   try { if (localStorage.getItem('mindmap.notesOpen')) document.body.classList.add('notes-open'); } catch { /* rien */ }
+  if (READONLY) {
+    helpEl.querySelector('h2').textContent = 'Aide';
+    helpEl.querySelector('.cols').innerHTML = VIEWER_HELP;
+    setMap(normalize(VIEW_DATA.root), VIEW_DATA.name || null, null, VIEW_DATA.layout);
+    return;
+  }
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY)); } catch { /* rien */ }
   if (saved && saved.root) {
