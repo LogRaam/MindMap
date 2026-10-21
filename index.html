@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>MindMap</title>
+<script>
+  // Applique le thème avant le premier affichage (évite un flash clair)
+  try {
+    document.documentElement.dataset.theme = localStorage.getItem('mindmap.theme')
+      || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  } catch { /* rien */ }
+</script>
 <style>
 :root {
   --bg: #f4f6f9;
@@ -21,7 +28,50 @@
   --sel: #f39c12;
   --accent: #2f5d9e;
   --drop: #27ae60;
+  --surface: #ffffff;
+  --surface-2: #fafbfc;
+  --hover: #eef2f7;
+  --hover-ring: #cfd8e3;
+  --placeholder: #9aa5b1;
+  --toggle-fg: #3b4a5e;
+  --icon-on: #fff4e0;
+  --shadow: rgba(0, 0, 0, .15);
+  --overlay: rgba(20, 28, 38, .35);
+  --toast: #26313f;
+  --export-bg: #ffffff;
+  color-scheme: light;
 }
+:root[data-theme="dark"] {
+  --bg: #1b1f24;
+  --toolbar: #23282f;
+  --border: #3a424d;
+  --text: #e2e7ed;
+  --muted: #9aa6b4;
+  --root-bg: #3d6fb6;
+  --root-fg: #ffffff;
+  --l1-bg: #24364d;
+  --l1-border: #4f7fbf;
+  --ln-bg: #2a3038;
+  --ln-border: #4a5563;
+  --link: #6c7d93;
+  --sel: #f5a623;
+  --accent: #6ea0e6;
+  --drop: #3cc47c;
+  --surface: #262c34;
+  --surface-2: #20252b;
+  --hover: #323a45;
+  --hover-ring: #4a5563;
+  --placeholder: #6b7684;
+  --toggle-fg: #c9d3df;
+  --icon-on: #4a3b1f;
+  --shadow: rgba(0, 0, 0, .5);
+  --overlay: rgba(0, 0, 0, .55);
+  --toast: #3a4452;
+  --export-bg: var(--bg);
+  color-scheme: dark;
+}
+/* Texte surligné dans les notes : garder un texte foncé sur le surlignage clair */
+:root[data-theme="dark"] #notesEditor [style*="background"] { color: #1f2933; }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif; }
@@ -31,29 +81,29 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); c
   padding: 0 8px; background: var(--toolbar); border-bottom: 1px solid var(--border); z-index: 10; user-select: none; }
 #toolbar button { border: 1px solid transparent; background: none; padding: 5px 9px; border-radius: 5px; font: inherit;
   font-size: 13px; cursor: pointer; color: var(--text); white-space: nowrap; }
-#toolbar button:hover { background: #eef2f7; border-color: var(--border); }
+#toolbar button:hover { background: var(--hover); border-color: var(--border); }
 #toolbar button.active { background: var(--l1-bg); border-color: var(--l1-border); }
 #toolbar button:disabled { opacity: .35; cursor: default; background: none; border-color: transparent; }
 #toolbar .sep { width: 1px; height: 24px; background: var(--border); margin: 0 6px; flex: none; }
 .menuWrap { position: relative; }
 .menu { display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; flex-direction: column; min-width: 300px;
-  padding: 4px; background: #fff; border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 6px 20px rgba(0,0,0,.14); z-index: 20; }
+  padding: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; box-shadow: 0 6px 20px var(--shadow); z-index: 20; }
 .menu.show { display: flex; }
 #toolbar .menu button { text-align: left; padding: 7px 10px; }
 .menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
 #notesPanel { position: fixed; top: 44px; right: 0; bottom: 0; width: 340px; display: none; flex-direction: column;
-  background: #fff; border-left: 1px solid var(--border); z-index: 5; }
+  background: var(--surface); border-left: 1px solid var(--border); z-index: 5; }
 body.notes-open #notesPanel { display: flex; }
 body.notes-open #viewport { right: 340px; }
 .np-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--border); }
 .np-head strong { font-size: 13px; white-space: nowrap; }
 #notesTopic { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #notesClose { border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 6px; border-radius: 4px; }
-#notesClose:hover { background: #eef2f7; }
-.np-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: #fafbfc; }
+#notesClose:hover { background: var(--hover); }
+.np-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 1px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
 .np-tools button { min-width: 28px; height: 28px; padding: 0 6px; border: 1px solid transparent; border-radius: 5px; background: none;
   font: inherit; font-size: 13px; cursor: pointer; color: var(--text); }
-.np-tools button:hover { background: #eef2f7; border-color: var(--border); }
+.np-tools button:hover { background: var(--hover); border-color: var(--border); }
 .np-tools button.active { background: var(--l1-bg); border-color: var(--l1-border); }
 .np-tools .sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
 .np-tools .swatch { font-weight: 700; }
@@ -61,8 +111,8 @@ body.notes-open #viewport { right: 340px; }
 #notesPanel.disabled .np-tools { opacity: .4; pointer-events: none; }
 #notesEditor { flex: 1; overflow: auto; padding: 12px 14px; outline: none; font-size: 14px; line-height: 1.5; color: var(--text);
   overflow-wrap: anywhere; user-select: text; }
-#notesPanel.disabled #notesEditor { background: #fafbfc; }
-#notesEditor:empty::before { content: attr(data-placeholder); color: #9aa5b1; pointer-events: none; }
+#notesPanel.disabled #notesEditor { background: var(--surface-2); }
+#notesEditor:empty::before { content: attr(data-placeholder); color: var(--placeholder); pointer-events: none; }
 #notesEditor p { margin: 0 0 .5em; }
 #notesEditor h3 { font-size: 16px; margin: .6em 0 .3em; }
 #notesEditor ul, #notesEditor ol { margin: 0 0 .5em; padding-left: 24px; }
@@ -70,8 +120,8 @@ body.notes-open #viewport { right: 340px; }
 #notesEditor a { color: var(--accent); }
 .node .note-ind { flex: none; font-size: .85em; line-height: 1; cursor: pointer; opacity: .8; }
 .node .note-ind:hover { opacity: 1; }
-#formatPanel { position: fixed; display: none; width: 318px; padding: 10px 12px 12px; background: #fff; z-index: 25;
-  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 26px rgba(0,0,0,.16); user-select: none; }
+#formatPanel { position: fixed; display: none; width: 318px; padding: 10px 12px 12px; background: var(--surface); z-index: 25;
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 26px var(--shadow); user-select: none; }
 #formatPanel.show { display: block; }
 .fp-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 8px 0 5px; }
 .fp-title:first-child { margin-top: 0; }
@@ -79,17 +129,17 @@ body.notes-open #viewport { right: 340px; }
 .fp-swatch { width: 26px; height: 26px; border-radius: 6px; border: 2px solid; cursor: pointer; padding: 0; }
 .fp-swatch.none { background: linear-gradient(135deg, #fff 45%, #e05555 45%, #e05555 55%, #fff 55%); border-color: var(--ln-border); }
 .fp-icon { width: 30px; height: 30px; border-radius: 6px; border: 1px solid transparent; background: none; font-size: 17px;
-  cursor: pointer; padding: 0; }
+  cursor: pointer; padding: 0; color: var(--text); }
 .fp-swatch.custom { position: relative; overflow: hidden; border-color: var(--ln-border);
   background: conic-gradient(#e53935, #fdd835, #43a047, #1e88e5, #8e24aa, #e53935); }
 .fp-swatch.custom input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: none; padding: 0; }
-.fp-icon:hover, .fp-swatch:hover { box-shadow: 0 0 0 2px #cfd8e3; }
+.fp-icon:hover, .fp-swatch:hover { box-shadow: 0 0 0 2px var(--hover-ring); }
 .fp-swatch.active, .fp-icon.active { box-shadow: 0 0 0 2px var(--sel); }
-.fp-icon.active { background: #fff4e0; }
+.fp-icon.active { background: var(--icon-on); }
 .fp-actions { display: flex; gap: 6px; margin-top: 12px; }
 .fp-actions button { flex: 1; font: inherit; font-size: 12px; padding: 6px; border: 1px solid var(--border); border-radius: 5px;
-  background: #f7f9fb; cursor: pointer; }
-.fp-actions button:hover { background: #eef2f7; }
+  background: var(--surface-2); color: var(--text); cursor: pointer; }
+.fp-actions button:hover { background: var(--hover); }
 #zoomLabel { min-width: 46px; text-align: center; font-size: 13px; color: var(--muted); }
 #fileName { margin-left: auto; font-size: 13px; color: var(--muted); padding-left: 10px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; max-width: 28vw; }
@@ -117,7 +167,7 @@ body.notes-open #viewport { right: 340px; }
 .node.dragging { opacity: .45; }
 
 .toggle { position: absolute; left: calc(100% - 8px); top: 50%; margin-top: -8px; min-width: 16px; height: 16px;
-  padding: 0 3px; border-radius: 8px; background: #fff; border: 1px solid var(--link); color: #3b4a5e;
+  padding: 0 3px; border-radius: 8px; background: var(--ln-bg); border: 1px solid var(--link); color: var(--toggle-fg);
   font-size: 11px; line-height: 14px; text-align: center; font-weight: 600; cursor: pointer; z-index: 1; }
 .node.left .toggle { left: auto; right: calc(100% - 8px); }
 .toggle.open { opacity: 0; transition: opacity .12s; }
@@ -126,19 +176,19 @@ body.notes-open #viewport { right: 340px; }
 #dropLine { position: absolute; height: 3px; border-radius: 2px; background: var(--drop); pointer-events: none; display: none; }
 #marquee { position: absolute; border: 1px dashed var(--accent); background: rgba(47, 93, 158, .08); pointer-events: none; display: none; }
 #ghost { position: fixed; z-index: 20; pointer-events: none; display: none; padding: 4px 10px; border-radius: 6px;
-  background: #fff; border: 1px solid var(--accent); font-size: 13px; box-shadow: 0 3px 10px rgba(0,0,0,.15);
+  background: var(--surface); color: var(--text); border: 1px solid var(--accent); font-size: 13px; box-shadow: 0 3px 10px var(--shadow);
   max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #26313f; color: #fff;
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--toast); color: #fff;
   padding: 8px 16px; border-radius: 6px; font-size: 13px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; }
 #toast.show { opacity: .95; }
 
 /* ---------- Aide ---------- */
-#help { position: fixed; inset: 0; background: rgba(20, 28, 38, .35); display: none; align-items: center;
+#help { position: fixed; inset: 0; background: var(--overlay); display: none; align-items: center;
   justify-content: center; z-index: 40; }
 #help.show { display: flex; }
-#help .panel { background: #fff; border-radius: 10px; padding: 20px 26px; max-width: 760px; width: calc(100% - 32px);
-  max-height: calc(100% - 40px); overflow: auto; box-shadow: 0 10px 40px rgba(0,0,0,.25); }
+#help .panel { background: var(--surface); border-radius: 10px; padding: 20px 26px; max-width: 760px; width: calc(100% - 32px);
+  max-height: calc(100% - 40px); overflow: auto; box-shadow: 0 10px 40px var(--shadow); }
 #help h2 { margin: 0 0 12px; font-size: 18px; }
 #help .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
 #help table { border-collapse: collapse; font-size: 13px; width: 100%; }
@@ -188,6 +238,7 @@ body.notes-open #viewport { right: 340px; }
   <button data-cmd="zoomIn" title="Zoom avant (Ctrl++)">+</button>
   <button data-cmd="fit" title="Ajuster à la fenêtre (Ctrl+0)">⤢ Ajuster</button>
   <span class="sep"></span>
+  <button data-cmd="theme" title="Mode sombre / clair">🌙</button>
   <button data-cmd="help" title="Aide (F1)">?</button>
   <span id="fileName"></span>
 </div>
@@ -284,6 +335,7 @@ body.notes-open #viewport { right: 340px; }
           <tr><td>Ctrl+molette</td><td>Zoom</td></tr>
           <tr><td>Ctrl+0</td><td>Ajuster à la fenêtre</td></tr>
           <tr><td>→ Droite / ⇄ Gauche + droite</td><td>Disposition de la carte (enregistrée avec la carte)</td></tr>
+          <tr><td>🌙 / ☀</td><td>Mode sombre / clair (par défaut, suit le réglage du système)</td></tr>
         </table>
         <h3>Fichier &amp; presse-papiers</h3>
         <table>
@@ -1299,7 +1351,7 @@ function renderCanvas(scale = 2) {
   c.height = Math.ceil(H * k);
   const g = c.getContext('2d');
   g.scale(k, k);
-  g.fillStyle = '#ffffff';
+  g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--export-bg').trim() || '#ffffff';
   g.fillRect(0, 0, W, H);
   g.translate(m - b.x1, m - b.y1);
 
@@ -2254,6 +2306,7 @@ const commands = {
   zoomIn: () => zoomCenter(1.2),
   zoomOut: () => zoomCenter(1 / 1.2),
   fit,
+  theme: () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark', true),
   help: () => toggleHelp(),
 };
 for (const b of document.querySelectorAll('#toolbar button')) {
@@ -2274,6 +2327,21 @@ window.addEventListener('beforeunload', e => {
   autosave();
   if (dirty) { e.preventDefault(); e.returnValue = ''; }
 });
+
+// ---------- Thème clair / sombre ----------
+const darkQuery = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+function setTheme(t, remember) {
+  document.documentElement.dataset.theme = t;
+  const b = document.querySelector('[data-cmd="theme"]');
+  b.textContent = t === 'dark' ? '☀' : '🌙';
+  b.title = t === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre';
+  if (remember) try { localStorage.setItem('mindmap.theme', t); } catch { /* rien */ }
+}
+function savedTheme() {
+  try { return localStorage.getItem('mindmap.theme'); } catch { return null; }
+}
+setTheme(savedTheme() || (darkQuery?.matches ? 'dark' : 'light'));
+darkQuery?.addEventListener?.('change', e => { if (!savedTheme()) setTheme(e.matches ? 'dark' : 'light'); });
 
 // ---------- Démarrage ----------
 (function init() {
