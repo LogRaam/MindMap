@@ -160,6 +160,7 @@ body.notes-open #viewport { right: 340px; }
     <div id="exportMenu" class="menu">
       <button data-cmd="exportPng">Image PNG…</button>
       <button data-cmd="copyPng">Copier comme image</button>
+      <button data-cmd="copyWithNotes">Copier le texte avec les notes (Word, courriel)</button>
       <hr>
       <button data-cmd="exportMermaidMindmap">Markdown Mermaid — mindmap…</button>
       <button data-cmd="exportMermaidFlow">Markdown Mermaid — flowchart (gauche → droite)…</button>
@@ -290,7 +291,7 @@ body.notes-open #viewport { right: 340px; }
           <tr><td>Ctrl+O</td><td>Ouvrir (.json, .mmap MindManager, .txt)</td></tr>
           <tr><td>Ctrl+C / X / V</td><td>Copier / couper / coller des branches (sans sélection : toute la carte)</td></tr>
           <tr><td>Ctrl+Z / Ctrl+Y</td><td>Annuler / rétablir</td></tr>
-          <tr><td>Exporter ▾</td><td>Image PNG (fichier ou presse-papiers), Markdown Mermaid (mindmap ou flowchart)</td></tr>
+          <tr><td>Exporter ▾</td><td>Image PNG (fichier ou presse-papiers), texte avec les notes (Word, courriel), Markdown Mermaid (mindmap ou flowchart)</td></tr>
         </table>
         <p style="font-size:12px;color:var(--muted);margin-top:10px">Le texte copié est un plan indenté : il se colle dans
           MindManager, Word ou un courriel. Un plan indenté (tabulations ou espaces) collé ici devient des sujets.
@@ -947,13 +948,21 @@ function esc(s) {
   return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 const withIcons = (n, text) => (n.icons?.length ? iconsText(n) + ' ' : '') + text;
-function toOutline(nodes, depth = 0) {
-  return nodes.map(n => '\t'.repeat(depth) + withIcons(n, n.text.replace(/\s*\n\s*/g, ' ')) +
-    (n.children.length ? '\n' + toOutline(n.children, depth + 1) : '')).join('\n');
+// Avec withNotes, chaque ligne de note suit son sujet, un cran plus loin, précédée de « › »
+const NOTE_MARK = '› ';
+function toOutline(nodes, depth = 0, withNotes = false) {
+  return nodes.map(n => {
+    let s = '\t'.repeat(depth) + withIcons(n, n.text.replace(/\s*\n\s*/g, ' '));
+    if (withNotes && n.note) s += '\n' + n.note.split('\n').filter(l => l.trim()).map(l => '\t'.repeat(depth + 1) + NOTE_MARK + l.trim()).join('\n');
+    if (n.children.length) s += '\n' + toOutline(n.children, depth + 1, withNotes);
+    return s;
+  }).join('\n');
 }
-function toHtmlList(nodes) {
+const NOTE_HTML_STYLE = 'margin:2px 0 6px;padding:2px 0 2px 10px;border-left:3px solid #c9d3df;color:#3e4c5c;font-size:0.95em';
+function toHtmlList(nodes, withNotes = false) {
   return '<ul>' + nodes.map(n => '<li>' + esc(withIcons(n, n.text)).replace(/\n/g, '<br>') +
-    (n.children.length ? toHtmlList(n.children) : '') + '</li>').join('') + '</ul>';
+    (withNotes && n.noteHtml ? `<div style="${NOTE_HTML_STYLE}">${n.noteHtml}</div>` : '') +
+    (n.children.length ? toHtmlList(n.children, withNotes) : '') + '</li>').join('') + '</ul>';
 }
 
 // Icônes en tête de ligne (ex. « ⭐ ✅ Tâche ») -> icônes du sujet
@@ -980,8 +989,15 @@ function parseOutline(text) {
     for (const ch of l.match(/^[\t ]*/)[0]) ind += ch === '\t' ? 4 : 1;
     return { ind, text: l.trim().replace(/^([-*+•·◦▪]|\d+[.)])\s+/, '') };
   });
-  const roots = [], stack = [];
+  const roots = [], stack = [], noteLines = new Map();
+  let last = null;
   for (const it of items) {
+    // Ligne « › … » (copie avec les notes) : rattachée à la note du sujet précédent
+    if (last && it.text.startsWith(NOTE_MARK.trim())) {
+      if (!noteLines.has(last)) noteLines.set(last, []);
+      noteLines.get(last).push(it.text.slice(1).trim());
+      continue;
+    }
     const { icons, text } = splitIcons(it.text);
     const node = makeNode(text);
     if (icons.length) node.icons = icons;
@@ -989,27 +1005,31 @@ function parseOutline(text) {
     if (stack.length) stack[stack.length - 1].node.children.push(node);
     else roots.push(node);
     stack.push({ ind: it.ind, node });
+    last = node;
   }
+  for (const [node, lines] of noteLines) setNote(node, textToHtml(lines.join('\n')));
   return roots;
 }
 
 // Sans sélection, c'est toute la carte qui est copiée
-function clipboardPayload() {
+let copyWithNotes = false;         // vrai pendant « Copier avec les notes »
+
+function clipboardPayload(withNotes) {
   const ids = topLevel([...selection]);
   const nodes = (ids.length ? ids : [root.id]).map(id => byId.get(id));
   const json = JSON.stringify({ format: FORMAT, nodes });
-  const text = toOutline(nodes);
-  const html = `<div data-mindmap="${encodeURIComponent(json)}">${toHtmlList(nodes)}</div>`;
+  const text = toOutline(nodes, 0, withNotes);
+  const html = `<div data-mindmap="${encodeURIComponent(json)}">${toHtmlList(nodes, withNotes)}</div>`;
   return { json, text, html, count: nodes.length };
 }
 
 function doCopy(dt) {
   finishEdit();
-  const p = clipboardPayload();
+  const p = clipboardPayload(copyWithNotes);
   dt.setData('text/plain', p.text);
   dt.setData('text/html', p.html);
   clipboardInternal = { text: p.text, json: p.json };
-  toast(selection.size ? 'Copié' : 'Carte entière copiée');
+  toast((selection.size ? 'Copié' : 'Carte entière copiée') + (copyWithNotes ? ' avec les notes' : ''));
 }
 
 const sameText = (a, b) => a.replace(/\r/g, '').trim() === b.replace(/\r/g, '').trim();
@@ -2221,6 +2241,11 @@ const commands = {
     openFormatPanel(r.left, r.bottom + 4);
   },
   copy: () => { finishEdit(); document.execCommand('copy'); },
+  copyWithNotes: () => {
+    finishEdit();
+    copyWithNotes = true;
+    try { document.execCommand('copy'); } finally { copyWithNotes = false; }
+  },
   cut: () => { finishEdit(); document.execCommand('cut'); },
   paste: () => { finishEdit(); pasteFromButton(); },
   notes: () => toggleNotes(undefined, true),
